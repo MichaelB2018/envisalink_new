@@ -469,8 +469,8 @@ async def get_connection():
         "evl_port": cfg.get("evl_port", 4025),
         "evl_password_set": bool(cfg.get("evl_password")),
         "connected": bool(ha_client and ha_client.connected),
-        "keypad_sensor": (saved or {}).get("keypad_sensor", ""),
-        "partition_entity": (saved or {}).get("partition_entity", ""),
+        "keypad_sensor": saved["keypad_sensor"] if saved else DEFAULT_KEYPAD_SENSOR,
+        "partition_entity": saved["partition_entity"] if saved else DEFAULT_PARTITION_ENTITY,
     }
 
 

@@ -583,20 +583,18 @@ $(function () {
 
     // ── HA-mode info panel (shown/hidden based on radio) ─────────────────────
     const $haFields = $('<div id="conn-ha-fields"></div>').toggle(!isDirect);
-    const ks = cfg.keypad_sensor || 'sensor.envisalink_new_keypad_partition_1';
-    const pe = cfg.partition_entity || 'alarm_control_panel.envisalink_new_partition_1';
+    const ks = cfg.keypad_sensor || "sensor.envisalink_new_keypad_partition_1";
+    const pe = cfg.partition_entity || "alarm_control_panel.envisalink_new_partition_1";
     $haFields.append($(
       '<div class="conn-ha-info">' +
-      'The addon communicates with the EVL <em>through</em> the ' +
-      '<code>envisalink_new</code> HA integration (no direct TCP connection). ' +
-      'Two HA entities are used:' +
+      'Communicates with the EVL <em>through</em> the ' +
+      '<code>envisalink_new</code> HA integration using two entities:' +
       '<ul>' +
-      '<li><strong>Keypad sensor</strong> (<code>' + ks + '</code>) — ' +
-      'display updates via HA WebSocket.</li>' +
-      '<li><strong>Alarm control panel</strong> (<code>' + pe + '</code>) — ' +
-      'keypresses via <code>envisalink_new/alarm_keypress</code> service.</li>' +
+      '<li><strong>Keypad sensor</strong>: <code>' + ks + '</code></li>' +
+      '<li><strong>Alarm panel</strong>: <code>' + pe + '</code></li>' +
       '</ul>' +
-      'Entity IDs are auto-discovered and saved on first boot.' +
+      'Entity IDs are auto-discovered on first boot. ' +
+      'No additional configuration is needed.' +
       '</div>'
     ));
     $body.append($haFields);

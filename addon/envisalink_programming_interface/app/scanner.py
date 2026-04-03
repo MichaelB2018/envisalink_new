@@ -1114,6 +1114,12 @@ class PanelScanner:
             expect_programming=False,
         )
         _LOGGER.info("SCAN [panel time] => %r", display)
+
+        # Send '#' to dismiss the time display immediately instead of
+        # waiting ~30 s for the panel to auto-return to normal mode.
+        await asyncio.sleep(STEP_DELAY)
+        await self._client.send_keypress("#")
+
         return _parse_panel_time_display(display)
 
     async def read_panel_time(self, user_code: str) -> dict[str, Any]:
@@ -1142,10 +1148,11 @@ class PanelScanner:
         _LOGGER.info("read_panel_time => %r", display)
         result = _parse_panel_time_display(display)
 
-        # The panel shows the time for ~30 s before auto-returning to
-        # normal mode.  Wait here so the UI stays locked and the user
-        # cannot issue conflicting commands while the panel is busy.
-        await self._wait_for_normal_display(max_wait=35.0)
+        # Send '#' to dismiss the time display immediately instead of
+        # waiting ~30 s for the panel to auto-return to normal mode.
+        await asyncio.sleep(STEP_DELAY)
+        await self._client.send_keypress("#")
+        await self._wait_for_normal_display(max_wait=10.0)
 
         return result
 
