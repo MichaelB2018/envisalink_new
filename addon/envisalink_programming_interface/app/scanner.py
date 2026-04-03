@@ -848,16 +848,16 @@ class PanelScanner:
         """
         Read keypad configuration fields *190–*196 (keypads 2–8).
 
-        Each field shows a single 2-digit combined value on line 2:
-          - Tens digit = Partition/Enable: 0=disabled, 1=Part 1, 2=Part 2, 3=Common
-          - Ones digit = Sound option: 0=all sounds, 1=suppress arm/E-E,
+        Each field has TWO separate sub-fields, each accepting one digit:
+          - Sub-field 1 = Partition/Enable: 0=disabled, 1=Part 1, 2=Part 2, 3=Common
+          - Sub-field 2 = Sound option: 0=all sounds, 1=suppress arm/E-E,
             2=suppress chime, 3=suppress all
 
-        Panel sequence for #NNN review:
-          1. Capture: "Keypad Addr.XX  |             NNN"  (field number)
-          2. Display: "Keypad Addr.XX  |              10"  (combined value, e.g. Part 1 + All sounds)
-          3. Panel may repeat/refresh the same display ~1 s later
-          4. Returns to "Field?"
+        The panel scrolls through the sub-values one at a time (like *34
+        exit delay), NOT as a single combined 2-digit number.  We use
+        _collect_scrolling_digits(raw=True, max_digits=2) to capture
+        each sub-value via the follower approach: wait for the display
+        to change for sub-field 1, then wait again for sub-field 2.
 
         Uses #NNN review mode — read-only, no data accepted.
         Stays in programming mode for the entire batch.
@@ -891,28 +891,26 @@ class PanelScanner:
                 keypad_num, field_num, display,
             )
 
-            # The initial capture shows the field number on line 2.
-            # Wait for the first sub-value (partition/enable).
-            first_display = await self._wait_for_display_change(
-                display, max_wait=10.0, poll_interval=0.3
+            # Collect 2 scrolling digits: sub-field 1 (partition/enable)
+            # and sub-field 2 (sound).  The panel shows each value for
+            # ~1 s before advancing.  After sub-field 2 it returns to
+            # "Field?" automatically.
+            raw_val = await self._collect_scrolling_digits(
+                display, field_num, max_digits=2, raw=True,
             )
-            first_line2 = _get_line2(first_display).strip()
             _LOGGER.debug(
-                "scan_keypads keypad %d first_display=%r line2=%r",
-                keypad_num, first_display, first_line2,
+                "scan_keypads keypad %d #%d scrolling_result=%r",
+                keypad_num, field_num, raw_val,
             )
 
-            # The keypad field shows a single 2-digit combined value on
-            # line 2: first digit = partition/enable, second digit = sound.
-            # E.g. "10" = partition 1 + all sounds, "00" = disabled + all sounds.
-            # The panel then repeats/refreshes the same display ~1 s later
-            # before returning to "Field?".
-            raw_val = _extract_raw_value(first_line2)
             if len(raw_val) >= 2:
-                partition_enable = raw_val[-2]   # tens digit
-                sound = raw_val[-1]              # ones digit
+                partition_enable = raw_val[0]    # first sub-field
+                sound = raw_val[1]               # second sub-field
+            elif len(raw_val) == 1:
+                partition_enable = raw_val[0]
+                sound = "0"
             else:
-                partition_enable = raw_val
+                partition_enable = "0"
                 sound = "0"
 
             key = str(keypad_num)

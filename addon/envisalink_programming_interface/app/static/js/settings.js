@@ -583,24 +583,20 @@ $(function () {
 
     // ── HA-mode info panel (shown/hidden based on radio) ─────────────────────
     const $haFields = $('<div id="conn-ha-fields"></div>').toggle(!isDirect);
+    const ks = cfg.keypad_sensor || 'sensor.envisalink_new_keypad_partition_1';
+    const pe = cfg.partition_entity || 'alarm_control_panel.envisalink_new_partition_1';
     $haFields.append($(
       '<div class="conn-ha-info">' +
-      'In this mode the addon communicates with the EVL <em>through</em> the ' +
-      '<code>envisalink_new</code> Home Assistant integration — it never opens ' +
-      'its own TCP connection to the panel. Two HA entities are used:' +
+      'The addon communicates with the EVL <em>through</em> the ' +
+      '<code>envisalink_new</code> HA integration (no direct TCP connection). ' +
+      'Two HA entities are used:' +
       '<ul>' +
-      '<li><strong>Keypad sensor</strong> ' +
-      '(<code>sensor.envisalink_new_keypad_partition_1</code>) — ' +
-      'the addon subscribes to state-change events on this sensor via the ' +
-      'HA WebSocket API to receive real-time display updates from the panel.</li>' +
-      '<li><strong>Alarm control panel</strong> ' +
-      '(<code>alarm_control_panel.envisalink_new_partition_1</code>) — ' +
-      'the addon sends keypresses to this entity via the ' +
-      '<code>envisalink_new/alarm_keypress</code> service through the HA REST API.</li>' +
+      '<li><strong>Keypad sensor</strong> (<code>' + ks + '</code>) — ' +
+      'display updates via HA WebSocket.</li>' +
+      '<li><strong>Alarm control panel</strong> (<code>' + pe + '</code>) — ' +
+      'keypresses via <code>envisalink_new/alarm_keypress</code> service.</li>' +
       '</ul>' +
-      'The entity IDs are auto-discovered on first boot and saved. ' +
-      'No additional configuration is needed — the addon authenticates ' +
-      'with the HA Supervisor token automatically.' +
+      'Entity IDs are auto-discovered and saved on first boot.' +
       '</div>'
     ));
     $body.append($haFields);

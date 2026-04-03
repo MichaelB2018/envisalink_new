@@ -1,5 +1,5 @@
 name: "Envisalink Programming Interface"
-version: "0.1.0"
+version: "1.0.0"
 slug: "envisalink_programming_interface"
 description: "Web UI for programming the Vista 20P panel via EyezOn Envisalink"
 url: "https://github.com/MichaelB2018/envisalink_new"

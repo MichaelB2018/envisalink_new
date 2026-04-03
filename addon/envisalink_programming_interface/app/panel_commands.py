@@ -338,12 +338,21 @@ def build_keypad_config(
     """
     Set a keypad configuration field (*190–*196).
 
-    Each field accepts 2 digits total: partition/enable (1) + sound option (1).
+    Each field has TWO separate sub-fields, each accepting one digit:
       partition_enable: 0=disabled, 1-3=partition number (3=common on 20P)
       sound:           0=all sounds, 1=suppress arm/E-E, 2=suppress chime,
                        3=suppress all
 
     Field numbers: *190=keypad 2 (addr 17) through *196=keypad 8 (addr 23).
+
+    IMPORTANT: The two digits must be sent with a ~2 s delay between them,
+    because the panel treats them as separate sub-field entries (like *34
+    exit delay has Part.1 and Part.2).  Sending both digits quickly causes
+    the panel to misinterpret the values.
+
+    The server endpoint handles the split timing directly — this function
+    is kept for reference but the returned string should NOT be sent as a
+    single keypress.
 
     After accepting the 2 digits the panel auto-advances to the next field.
     *99 exits programming mode from any data-field prompt.

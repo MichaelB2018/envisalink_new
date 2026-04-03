@@ -462,12 +462,15 @@ async def clear_code():
 async def get_connection():
     """Return the current connection mode and EVL direct config (password never returned)."""
     cfg = _load_evl_config()
+    saved = _load_entities()
     return {
         "mode": cfg.get("mode", "ha"),
         "evl_host": cfg.get("evl_host", ""),
         "evl_port": cfg.get("evl_port", 4025),
         "evl_password_set": bool(cfg.get("evl_password")),
         "connected": bool(ha_client and ha_client.connected),
+        "keypad_sensor": (saved or {}).get("keypad_sensor", ""),
+        "partition_entity": (saved or {}).get("partition_entity", ""),
     }
 
 
@@ -778,6 +781,7 @@ async def configure(req: ConfigureRequest):
         raise HTTPException(status_code=503, detail="Client not ready")
     code = _require_code()
     cmd: str | None = None
+    already_sent = False
 
     if req.field == "time":
         import datetime
@@ -886,14 +890,37 @@ async def configure(req: ConfigureRequest):
         if not 0 <= snd <= 3:
             raise HTTPException(status_code=400, detail="sound must be 0-3")
         field_num = 188 + kn  # keypad 2 → *190, keypad 8 → *196
-        cmd = build_keypad_config(code, field_num, pe, snd)
+        # Keypad fields have TWO separate sub-fields (partition/enable
+        # and sound), each accepting one digit.  The panel needs time to
+        # accept the first digit before receiving the second — sending
+        # both digits quickly causes them to be misinterpreted.
+        # Phase 1: enter prog mode, navigate to field, send first digit
+        cmd_phase1 = f"*99{code}800*{field_num}{pe}"
+        ok1 = await ha_client.send_keypress(cmd_phase1)
+        if not ok1:
+            return JSONResponse({"ok": False, "error": "Failed to send keypad phase 1"})
+        await _broadcast_keypress(cmd_phase1, f"configure:{req.field}:phase1")
+        # Wait for panel to accept the first sub-field
+        await asyncio.sleep(2.0)
+        # Phase 2: send second digit + exit
+        cmd_phase2 = f"{snd}*99"
+        ok2 = await ha_client.send_keypress(cmd_phase2)
+        if not ok2:
+            return JSONResponse({"ok": False, "error": "Failed to send keypad phase 2"})
+        await _broadcast_keypress(cmd_phase2, f"configure:{req.field}:phase2")
+        cmd = cmd_phase1 + " (pause) " + cmd_phase2
+        already_sent = True
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown field: {req.field!r}")
 
-    ok = await ha_client.send_keypress(cmd)
+    if not already_sent:
+        ok = await ha_client.send_keypress(cmd)
+        if ok:
+            await _broadcast_keypress(cmd, f"configure:{req.field}")
+    else:
+        ok = True
     if ok:
-        await _broadcast_keypress(cmd, f"configure:{req.field}")
         # Update config cache so saved values persist across page refreshes
         if scanner:
             cache = await scanner.load_cache()
