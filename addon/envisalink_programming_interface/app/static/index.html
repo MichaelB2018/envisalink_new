@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vista 20P Programmer</title>
+<base id="base-tag" href="__BASE_PATH__/">
+<link rel="stylesheet" href="static/css/style.css?v=2">
+<script>
+  // Apply saved theme immediately to avoid flash of wrong theme
+  (function(){var t=localStorage.getItem("theme");if(t!=="dark")document.documentElement.setAttribute("data-theme","light")})();
+</script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CODE MODAL  — shown when no installer code is stored
+═══════════════════════════════════════════════════════════════════ -->
+<div id="code-modal-overlay" class="modal-overlay hidden">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-header">
+      <span class="modal-icon">🔐</span>
+      <h2 id="modal-title">Installer Code Required</h2>
+      <button id="code-modal-close" class="modal-btn-close hidden" title="Close">&times;</button>
+    </div>
+    <p class="modal-desc">Enter the Vista 20P codes below.<br>Installer default is <code>4112</code>.</p>
+    <label class="modal-field-label" for="code-input">Installer / Programmer Code</label>
+    <input id="code-input" type="password" inputmode="numeric" pattern="[0-9]*"
+           maxlength="6" placeholder="••••" autocomplete="off" spellcheck="false">
+    <div id="user-code-row">
+      <label class="modal-field-label" for="user-code-input">User / Disarm Code <small>(optional)</small></label>
+      <input id="user-code-input" type="password" inputmode="numeric" pattern="[0-9]*"
+             maxlength="6" placeholder="••••" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="user-code-auto" class="hidden" style="font-size:0.82em;color:#8bc34a;margin-bottom:8px">
+      &#10003; User code loaded from Home Assistant
+    </div>
+    <label class="remember-label">
+      <input type="checkbox" id="remember-code" checked>
+      Remember on this device
+    </label>
+    <div id="code-error" class="modal-error hidden">Invalid code format — digits only, minimum 4.</div>
+    <button id="code-submit" class="btn-primary">Unlock</button>
+  </div>
+</div>
+
+<!-- Refresh confirm modal -->
+<div id="refresh-modal" class="modal-overlay hidden">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <span class="modal-icon">🔄</span>
+      <h2>Re-sync Panel Configuration</h2>
+      <button id="refresh-close" class="modal-btn-close" title="Close">&times;</button>
+    </div>
+    <p class="modal-desc">
+      This performs a <strong>full re-read</strong> of all programmable settings
+      directly from the Vista 20P panel — zones, system options, keypads,
+      reporting, and custom words.<br><br>
+      <strong>Requirements:</strong><br>
+      • The panel must be <strong>disarmed</strong> and in normal operating state.<br>
+      • No other keypads should be in use during the sync.<br><br>
+      <strong>⚠️ Warning:</strong> The panel enters programming mode during the
+      sync. If interrupted (power loss, network outage), you must press
+      <strong>*99</strong> on a physical keypad to exit programming mode.<br><br>
+      ⏱ Takes approximately <strong>3–6 minutes</strong>. You will see screen
+      activity on the LCD display above.
+    </p>
+    <div class="modal-actions">
+      <button id="refresh-cancel" class="btn-ghost">Cancel</button>
+      <button id="refresh-confirm" class="btn-primary btn-confirm">Start Full Re-sync</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generic confirm / warning modal (replaces browser confirm()) -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <span id="confirm-modal-icon" class="modal-icon">⚠️</span>
+      <h2 id="confirm-modal-title">Confirm</h2>
+    </div>
+    <p id="confirm-modal-body" class="modal-desc"></p>
+    <div class="modal-actions">
+      <button id="confirm-modal-cancel" class="btn-ghost">Cancel</button>
+      <button id="confirm-modal-ok" class="btn-primary btn-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Busy / saving overlay — moved into settings-ui below -->
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MAIN SHELL
+═══════════════════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="header-brand">
+        <img src="static/images/honeywell.svg" alt="Honeywell" class="brand-logo">
+        <span class="brand-subtitle">Vista 20P</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="btn-theme-toggle" class="btn-ghost btn-sm" title="Toggle light/dark theme">☀️</button>
+      <button id="btn-conn-settings" class="conn-status-btn" title="Connection settings">
+        <span id="conn-dot" class="conn-dot disconnected"></span>
+        <span id="conn-label">Connecting…</span>
+      </button>
+      <button id="btn-clear-code" class="btn-ghost btn-sm" title="Change installer code">🔑</button>
+        <button id="btn-refresh-config" class="btn-ghost btn-sm hidden" title="Re-sync panel configuration" style="color:var(--amber)"><span class="refresh-icon">↻</span></button>
+    </div>
+  </header>
+
+  <!-- ── LCD Panel Display (always visible) ── -->
+  <section id="lcd-section" class="lcd-section">
+    <div class="lcd-bezel">
+      <!-- LED indicator row — mirrors the physical 6150/6160 keypad LEDs -->
+      <!-- Values are driven from the partition attributes already in every WS display event -->
+      <div id="lcd-leds" class="lcd-leds">
+        <span class="led-item" data-led="ready"   title="System ready to arm">
+          <span class="led-dot" id="led-ready"></span><span class="led-label">READY</span>
+        </span>
+        <span class="led-item" data-led="armed"   title="Partition armed">
+          <span class="led-dot" id="led-armed"></span><span class="led-label">ARMED</span>
+        </span>
+        <span class="led-item" data-led="bypass"  title="One or more zones bypassed">
+          <span class="led-dot" id="led-bypass"></span><span class="led-label">BYPASS</span>
+        </span>
+        <span class="led-item" data-led="trouble" title="System trouble">
+          <span class="led-dot" id="led-trouble"></span><span class="led-label">TROUBLE</span>
+        </span>
+        <span class="led-item" data-led="alarm"   title="Alarm active">
+          <span class="led-dot" id="led-alarm"></span><span class="led-label">ALARM</span>
+        </span>
+        <span class="led-item" data-led="fire"    title="Fire alarm">
+          <span class="led-dot" id="led-fire"></span><span class="led-label">FIRE</span>
+        </span>
+        <span class="led-item" data-led="ac"       title="AC power present">
+          <span class="led-dot" id="led-ac"></span><span class="led-label">AC</span>
+        </span>
+        <span class="led-item" data-led="chime"    title="Chime mode enabled">
+          <span class="led-dot" id="led-chime"></span><span class="led-label">CHIME</span>
+        </span>
+        <span class="led-item" data-led="battery"  title="Low battery condition">
+          <span class="led-dot" id="led-battery"></span><span class="led-label">BATT</span>
+        </span>
+        <span class="led-item" data-led="prog"    title="Panel in programming mode (detected from display text)">
+          <span class="led-dot" id="led-prog"></span><span class="led-label">PROG</span>
+        </span>
+      </div>
+      <div class="lcd-screen">
+        <div id="lcd-line1" class="lcd-line">&nbsp;</div>
+        <div id="lcd-line2" class="lcd-line">&nbsp;</div>
+      </div>
+      <div class="lcd-controls">
+        <span id="scan-badge" class="scan-badge hidden">⟳ Scanning…</span>
+        <span id="last-scanned" class="last-scanned hidden"></span>
+      </div>
+    </div>
+
+    <!-- Cold-start panel — shown until first scan -->
+    <div id="cold-start-panel" class="cold-start-panel">
+
+      <!-- Normal state: welcome + warning + button -->
+      <div id="cold-start-hint" class="cold-start-hint">
+        <h3 style="margin:0 0 8px;font-size:1.05em;color:var(--text-primary)">Welcome — Panel Configuration Sync</h3>
+        <p style="margin:0 0 10px;line-height:1.5">
+          This tool will read <strong>all programmable settings</strong> from your
+          Vista 20P panel — zone types, zone names, system options, reporting,
+          custom words, and keypad configuration — so you can view and edit them
+          from your browser.
+        </p>
+
+        <div style="background:rgba(255,152,0,0.1);border:1px solid rgba(255,152,0,0.35);
+                    border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:0.92em;line-height:1.55">
+          <strong style="color:#fb8c00">⚠️ Before you begin — please read carefully:</strong>
+          <ul style="margin:6px 0 0 18px;padding:0">
+            <li>The panel will enter <strong>programming mode</strong> during the sync.
+                While in programming mode, <strong>zones are not monitored</strong> —
+                the alarm will not respond to faults or trigger alerts.</li>
+            <li>If a <strong>power outage, network interruption, or software crash</strong>
+                occurs during the sync, the panel may remain stuck in programming
+                mode. You will need to <strong>press <code>*99</code> on a physical
+                keypad</strong> to exit manually.</li>
+            <li><strong>You should have a physical keypad accessible</strong> at all times
+                so you can recover from an interrupted session.</li>
+            <li>The panel must be <strong>disarmed</strong> before syncing.</li>
+          </ul>
+        </div>
+
+        <p style="margin:0 0 4px;font-size:0.88em;color:var(--text-hint)">
+          ⏱ The initial sync takes approximately <strong>3–6 minutes</strong>.
+          You will see real-time progress on the LCD display above.
+        </p>
+      </div>
+      <button id="btn-read-config" class="btn-read-config">
+        <span class="btn-read-icon">📡</span>
+        Sync Panel Config
+      </button>
+
+      <!-- Scan-in-progress state: inline progress replaces button -->
+      <div id="scan-progress-panel" class="scan-progress-panel hidden">
+        <div class="scan-spinner-icon">⟳</div>
+        <div id="scan-progress-msg" class="scan-progress-msg">Syncing panel configuration…</div>
+        <div class="scan-bar-wrap">
+          <div id="scan-progress-bar" class="scan-progress-bar"></div>
+        </div>
+        <div id="scan-progress-step" class="scan-progress-step">Step 0 of 33</div>
+        <div class="scan-time-hint">⏱ Approximately 3–6 minutes total</div>
+      </div>
+
+      <!-- Scan-aborted error panel -->
+      <div id="scan-abort-panel" class="hidden" style="
+          margin-top:12px;padding:14px 16px;
+          background:#3a1a1a;border:1px solid #c62828;border-radius:6px;color:#ef9a9a">
+        <strong>&#9888; Scan interrupted</strong>
+        <p id="scan-abort-msg" style="margin:8px 0 10px"></p>
+        <p style="margin:0 0 10px;font-size:0.9em">
+          Please wait a few seconds for the panel to return to normal mode,
+          then try again.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+          <button id="btn-scan-retry" class="btn-read-config" style="flex:0 0 auto;width:auto;padding:12px 28px">&#x21BA; Try again</button>
+          <button id="btn-scan-debug-toggle"
+            style="background:none;border:1px solid #666;color:#999;
+                   padding:12px 18px;border-radius:8px;cursor:pointer;
+                   font-size:0.9em;white-space:nowrap">
+            Show debug log
+          </button>
+        </div>
+        <div id="scan-debug-panel" class="hidden" style="margin-top:10px">
+          <pre id="scan-debug-log"
+            style="background:#111;color:#b0bec5;font-size:0.75em;padding:10px;
+                   border-radius:4px;max-height:260px;overflow-y:auto;white-space:pre-wrap"
+          ></pre>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Connection Settings (always visible, independent of scan) ── -->
+  <!-- REMOVED: moved to #conn-settings-modal accessed via header button -->
+
+  <!-- ── Settings UI (hidden until config loaded) ── -->
+  <div id="settings-ui" class="settings-ui hidden">
+
+    <!-- Busy / saving overlay — covers settings area only; LCD stays visible -->
+    <div id="busy-overlay" class="busy-overlay hidden">
+      <div class="busy-box">
+        <span class="busy-icon">⏳</span>
+        <h3 id="busy-title">Saving…</h3>
+        <p id="busy-desc" class="busy-desc">Programming the panel — please wait.</p>
+        <div class="busy-spinner-row"><span class="busy-spinner"></span></div>
+      </div>
+    </div>
+
+    <!-- Re-sync progress (shown inline when re-syncing with settings already visible) -->
+    <div id="rescan-progress-panel" class="scan-progress-panel rescan-progress hidden">
+      <div class="scan-spinner-icon">⟳</div>
+      <div id="rescan-progress-msg" class="scan-progress-msg">Re-syncing panel configuration…</div>
+      <div class="scan-bar-wrap">
+        <div id="rescan-progress-bar" class="scan-progress-bar"></div>
+      </div>
+      <div id="rescan-progress-step" class="scan-progress-step">Step 0 of 33</div>
+      <div class="scan-time-hint">⏱ Approximately 3–6 minutes total</div>
+    </div>
+
+    <!-- Re-sync error (shown inline when a re-sync fails) -->
+    <div id="rescan-error-panel" class="rescan-error hidden">
+      <strong>&#9888; Re-sync failed</strong>
+      <p id="rescan-error-msg" style="margin:8px 0 10px"></p>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <button id="btn-rescan-error-dismiss" class="btn-dismiss"
+                style="flex:0 0 auto;width:auto;padding:8px 20px">&times; Dismiss</button>
+        <button id="btn-rescan-debug-toggle"
+          style="background:none;border:1px solid #666;color:#999;
+                 padding:8px 18px;border-radius:8px;cursor:pointer;
+                 font-size:0.9em;white-space:nowrap">
+          Show debug log
+        </button>
+      </div>
+      <div id="rescan-debug-panel" class="hidden" style="margin-top:10px">
+        <pre id="rescan-debug-log"
+          style="background:#111;color:#b0bec5;font-size:0.75em;padding:10px;
+                 border-radius:4px;max-height:260px;overflow-y:auto;white-space:pre-wrap"
+        ></pre>
+      </div>
+    </div>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="zones" role="tab" aria-selected="true">Zones</button>
+      <button class="tab-btn" data-tab="system" role="tab" aria-selected="false">System</button>
+      <button class="tab-btn" data-tab="words" role="tab" aria-selected="false">Custom Words</button>
+      <button class="tab-btn" data-tab="reporting" role="tab" aria-selected="false">Reporting</button>
+      <button class="tab-btn" data-tab="accounts" role="tab" aria-selected="false">Users</button>
+      <button class="tab-btn" data-tab="keypads" role="tab" aria-selected="false">Keypads</button>
+      <button class="tab-btn" data-tab="eventlog" role="tab" aria-selected="false">Event Log</button>
+      <button class="tab-btn" data-tab="keypad" role="tab" aria-selected="false">Virtual Pad</button>
+      <button class="tab-btn" data-tab="sniffer" role="tab" aria-selected="false">Sniffer</button>
+    </nav>
+
+    <!-- Tab: Zones -->
+    <div id="tab-zones" class="tab-panel active" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Zone Configuration</h3>
+          <button class="btn-section-rescan" data-section="zones" title="Re-read zone types and names from the panel">↻ Re-sync Zones</button>
+          <button id="btn-bypass-scan" class="btn-bypass-refresh hidden" title="Read which zones are currently bypassed (BYPASS LED must be active)">⊘ Read Bypass</button>
+          <span class="card-hint">Zones 1–48. Save applies changes to the panel immediately.</span>
+        </div>
+        <div id="zones-container">
+          <!-- populated by zones.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: System -->
+    <div id="tab-system" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>System Settings</h3>
+          <button class="btn-section-rescan" data-section="system" title="Re-read system delay fields from the panel">↻ Re-sync System</button>
+          <span class="card-hint">Changes are applied to the panel immediately on save.</span>
+        </div>
+        <div id="system-settings-list" class="settings-list">
+          <!-- populated by settings.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Custom Words -->
+    <div id="tab-words" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Custom Words</h3>
+          <span class="card-hint">Edit custom vocabulary words and partition labels (max 10 chars, A-Z/0-9).</span>
+          <button class="btn-section-rescan" data-section="words" title="Re-sync custom words from the panel (*82 custom word mode)">↻ Re-sync Words</button>
+        </div>
+        <div id="custom-words-list" class="settings-list">
+          <!-- populated by settings.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Event Log -->
+    <div id="tab-eventlog" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Event Log</h3>
+          <span class="card-hint">Fetches entries from the panel's internal event log.</span>
+        </div>
+        <div class="eventlog-controls">
+          <label>Entries to fetch:
+            <select id="log-count-select">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="75">75</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button id="btn-fetch-log" class="btn-primary">Fetch Log</button>
+        </div>
+        <div id="log-status" class="log-status hidden"></div>
+        <table id="log-table" class="log-table hidden">
+          <thead><tr><th>#</th><th>Raw Entry</th><th>Decoded</th></tr></thead>
+          <tbody id="log-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Virtual Keypad -->
+    <div id="tab-keypad" class="tab-panel" role="tabpanel">
+      <div class="panel-card keypad-card">
+        <div class="card-header">
+          <h3>Virtual Keypad</h3>
+          <span class="card-hint">Direct key passthrough — use for any panel operation.</span>
+        </div>
+        <div id="keypad-root">
+          <!-- populated by keypad.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Reporting -->
+    <div id="tab-reporting" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Reporting / Dialer / Pager</h3>
+          <button class="btn-section-rescan" data-section="reporting" title="Re-read reporting fields from the panel">↻ Re-sync Reporting</button>
+          <span class="card-hint">Phone numbers, account numbers, report format, and pager settings. Changes are applied to the panel immediately on save.</span>
+        </div>
+        <div id="reporting-list" class="settings-list">
+          <!-- populated by reporting.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Users -->
+    <div id="tab-accounts" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>User Codes</h3>
+          <span class="card-hint">Manage user codes 01–49. Operations are write-only — the panel cannot report which slots are active.</span>
+        </div>
+        <div id="accounts-list" class="settings-list"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Keypads -->
+    <div id="tab-keypads" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Keypads</h3>
+          <button class="btn-section-rescan" data-section="keypads" title="Re-read keypad settings from the panel">↻ Re-sync Keypads</button>
+          <span class="card-hint">Keypad bus addresses 17–23 (fields *190–*196). Keypad 1 (addr 16) is factory-set.</span>
+        </div>
+        <div id="keypad-settings-list" class="settings-list">
+          <p style="color:var(--text-hint);padding:1.5rem;text-align:center;font-style:italic">Run a scan to load keypad configuration.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Bus Sniffer -->
+    <div id="tab-sniffer" class="tab-panel" role="tabpanel">
+      <div class="panel-card">
+        <div class="card-header">
+          <h3>Bus Sniffer</h3>
+          <span class="card-hint">Records every keypad display change pushed by the panel. Operate your physical keypad while capturing to observe the sequence.</span>
+        </div>
+        <div class="sniffer-controls">
+          <button id="btn-sniff-toggle" class="btn-sniff-start">Start Capture</button>
+          <button id="btn-sniff-clear" class="btn-ghost btn-sm">Clear</button>
+          <button id="btn-sniff-copy" class="btn-ghost btn-sm">Copy Log</button>
+          <button id="btn-sniff-scanlog" class="btn-ghost btn-sm" title="Load the last panel scan log">Scan Log</button>
+          <button id="btn-sniff-back" class="btn-ghost btn-sm hidden" title="Return to live capture view">&#8592; Back to Live</button>
+          <span id="sniff-count" class="sniff-count">0 entries</span>
+        </div>
+        <table id="sniff-table" class="sniff-table hidden">
+          <thead><tr><th>Time</th><th>Type</th><th>Line 1 / Keys</th><th>Line 2</th></tr></thead>
+          <tbody id="sniff-tbody"></tbody>
+        </table>
+        <div id="sniff-empty" class="sniff-empty">Start capture, then operate your physical keypad.</div>
+      </div>
+    </div>
+
+  </div><!-- /settings-ui -->
+</div><!-- /app -->
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     TOAST NOTIFICATION
+═══════════════════════════════════════════════════════════════════ -->
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SCRIPTS (jQuery 4 from CDN, then local modules)
+═══════════════════════════════════════════════════════════════════ -->
+<script src="static/js/jquery.min.js"></script>
+<script src="static/js/app.js?v=2"></script>
+<script src="static/js/keypad.js?v=2"></script>
+<script src="static/js/zones.js?v=2"></script>
+<script src="static/js/settings.js?v=2"></script>
+<script src="static/js/keypads.js?v=2"></script>
+<script src="static/js/accounts.js?v=2"></script>
+<script src="static/js/reporting.js?v=2"></script>
+<script src="static/js/eventlog.js?v=2"></script>
+<script src="static/js/sniffer.js?v=2"></script>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     CONNECTION SETTINGS MODAL
+═══════════════════════════════════════════════════════════════════ -->
+<div id="conn-settings-modal" class="modal-overlay hidden">
+  <div class="modal-box modal-box-wide" role="dialog" aria-modal="true" aria-labelledby="conn-modal-title">
+    <div class="modal-header">
+      <span class="modal-icon">🔌</span>
+      <h2 id="conn-modal-title">Connection Settings</h2>
+      <button id="btn-conn-modal-close" class="modal-btn-close" title="Close">&times;</button>
+    </div>
+    <div id="conn-settings-body" class="settings-list">
+      <!-- populated by settings.js on document-ready -->
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
